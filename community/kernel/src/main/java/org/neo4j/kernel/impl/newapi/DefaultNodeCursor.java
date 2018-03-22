@@ -28,12 +28,14 @@ import org.neo4j.internal.kernel.api.NodeCursor;
 import org.neo4j.internal.kernel.api.PropertyCursor;
 import org.neo4j.internal.kernel.api.RelationshipGroupCursor;
 import org.neo4j.internal.kernel.api.RelationshipTraversalCursor;
+import org.neo4j.internal.kernel.api.exceptions.PropertyKeyIdNotFoundKernelException;
 import org.neo4j.io.pagecache.PageCursor;
 import org.neo4j.kernel.api.txstate.TransactionState;
 import org.neo4j.kernel.impl.store.NodeLabelsField;
 import org.neo4j.kernel.impl.store.RecordCursor;
 import org.neo4j.kernel.impl.store.record.DynamicRecord;
 import org.neo4j.kernel.impl.store.record.NodeRecord;
+import org.neo4j.values.storable.TextValue;
 
 import static java.util.Collections.emptySet;
 
@@ -172,6 +174,23 @@ class DefaultNodeCursor extends NodeRecord implements NodeCursor
 
     @Override
     public boolean next()
+    {
+        boolean hasNext;
+        do
+        {
+            hasNext = innerNext();
+        } while ( hasNext && !allowed() );
+        return hasNext;
+    }
+
+    private boolean allowed()
+    {
+        PropertyCursor properties = read.ktx.propertyCursor();
+        properties( properties );
+        return SecurityUtil.hasAccess( properties, read );
+    }
+
+    private boolean innerNext()
     {
         if ( next == NO_ID )
         {

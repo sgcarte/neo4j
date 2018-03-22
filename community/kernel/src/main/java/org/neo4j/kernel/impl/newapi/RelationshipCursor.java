@@ -22,8 +22,10 @@ package org.neo4j.kernel.impl.newapi;
 import org.neo4j.internal.kernel.api.NodeCursor;
 import org.neo4j.internal.kernel.api.PropertyCursor;
 import org.neo4j.internal.kernel.api.RelationshipDataAccessor;
+import org.neo4j.internal.kernel.api.exceptions.PropertyKeyIdNotFoundKernelException;
 import org.neo4j.kernel.impl.api.RelationshipVisitor;
 import org.neo4j.kernel.impl.store.record.RelationshipRecord;
+import org.neo4j.values.storable.TextValue;
 
 abstract class RelationshipCursor extends RelationshipRecord implements RelationshipDataAccessor, RelationshipVisitor<RuntimeException>
 {
@@ -97,6 +99,31 @@ abstract class RelationshipCursor extends RelationshipRecord implements Relation
     }
 
     protected abstract void collectAddedTxStateSnapshot();
+
+    protected boolean allowed()
+    {
+        // check if relationship is accessible
+        PropertyCursor properties = read.ktx.propertyCursor();
+        properties( properties );
+        boolean accessible = SecurityUtil.hasAccess(properties, read);
+        if ( accessible )
+        {
+            // check source is accessible
+            NodeCursor sourceCursor = read.ktx.nodeCursor();
+            source(sourceCursor);
+            sourceCursor.properties(properties);
+            accessible = SecurityUtil.hasAccess(properties, read);
+            if ( accessible )
+            {
+                // check target is accessible
+                NodeCursor targetCursor = read.ktx.nodeCursor();
+                target(targetCursor);
+                targetCursor.properties(properties);
+                return SecurityUtil.hasAccess(properties, read);
+            }
+        }
+        return false;
+    }
 
     /**
      * RelationshipCursor should only see changes that are there from the beginning

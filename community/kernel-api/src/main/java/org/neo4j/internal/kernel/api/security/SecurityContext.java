@@ -55,6 +55,20 @@ public class SecurityContext implements LoginContext
         return true;
     }
 
+    public boolean hasAccess( String markup )
+    {
+        String username = subject.username();
+        if ( username.equals("neo4j") )
+        {
+            return true;
+        }
+        if ( markup.equals( "U" ) )
+        {
+            return true;
+        }
+        return false;
+    }
+
     @Override
     public AuthSubject subject()
     {

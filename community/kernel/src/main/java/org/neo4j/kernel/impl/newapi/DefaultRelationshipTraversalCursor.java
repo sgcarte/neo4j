@@ -267,6 +267,16 @@ class DefaultRelationshipTraversalCursor extends RelationshipCursor
     @Override
     public boolean next()
     {
+        boolean hasNext;
+        do
+        {
+            hasNext = innerNext();
+        } while ( hasNext && !allowed() );
+        return hasNext;
+    }
+
+    private boolean innerNext()
+    {
         boolean hasChanges;
         TransactionState txs;
 

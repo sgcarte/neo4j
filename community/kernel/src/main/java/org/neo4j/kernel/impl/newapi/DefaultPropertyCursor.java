@@ -20,12 +20,16 @@
 package org.neo4j.kernel.impl.newapi;
 
 import java.nio.ByteBuffer;
+import java.util.HashMap;
 import java.util.Iterator;
+import java.util.Map;
 import java.util.regex.Pattern;
 
 import org.neo4j.internal.kernel.api.PropertyCursor;
+import org.neo4j.internal.kernel.api.exceptions.PropertyKeyIdNotFoundKernelException;
 import org.neo4j.io.pagecache.PageCursor;
 import org.neo4j.kernel.api.AssertOpen;
+import org.neo4j.kernel.impl.logging.LogService;
 import org.neo4j.kernel.impl.store.GeometryType;
 import org.neo4j.kernel.impl.store.LongerShortString;
 import org.neo4j.kernel.impl.store.PropertyType;
@@ -34,6 +38,7 @@ import org.neo4j.kernel.impl.store.TemporalType;
 import org.neo4j.kernel.impl.store.record.PropertyBlock;
 import org.neo4j.kernel.impl.store.record.PropertyRecord;
 import org.neo4j.kernel.impl.util.Bits;
+import org.neo4j.kernel.internal.GraphDatabaseAPI;
 import org.neo4j.storageengine.api.StorageProperty;
 import org.neo4j.storageengine.api.txstate.PropertyContainerState;
 import org.neo4j.values.storable.ArrayValue;
@@ -64,8 +69,37 @@ public class DefaultPropertyCursor extends PropertyRecord implements PropertyCur
     private PropertyContainerState propertiesState;
     private Iterator<StorageProperty> txStateChangedProperties;
     private StorageProperty txStateValue;
+    private Map<String, StorageProperty> propertyCache = new HashMap<>();
+    private boolean cursorDoneReading;
     private AssertOpen assertOpen;
     private final DefaultCursors pool;
+
+    private class PropertyValue implements StorageProperty
+    {
+        private int propertyKeyId;
+        private Value value;
+
+        PropertyValue( int propertyKeyId, Value value )
+        {
+            this.propertyKeyId = propertyKeyId;
+            this.value = value;
+        }
+
+        public int propertyKeyId()
+        {
+            return propertyKeyId;
+        }
+
+        public Value value()
+        {
+            return value;
+        }
+
+        public boolean isDefined()
+        {
+            return true;
+        }
+    }
 
     public DefaultPropertyCursor( DefaultCursors pool )
     {
@@ -118,6 +152,9 @@ public class DefaultPropertyCursor extends PropertyRecord implements PropertyCur
 
     private void init( long reference, Read read, AssertOpen assertOpen )
     {
+        cursorDoneReading = false;
+        propertyCache.clear();
+
         if ( getId() != NO_ID )
         {
             clear();
@@ -142,17 +179,97 @@ public class DefaultPropertyCursor extends PropertyRecord implements PropertyCur
     @Override
     public boolean next()
     {
-        boolean hasNext;
-        do
+        boolean hasNext = false;
+        if ( !cursorDoneReading )
         {
-            hasNext = innerNext();
-        } while ( hasNext && !allowed( propertyKey() ) );
+            do
+            {
+                hasNext = innerNext();
+                if ( !hasNext )
+                {
+                    cursorDoneReading = true;
+                }
+            } while ( hasNext && !allowed(propertyKey()) );
+        }
+
+        // if none left and we have some cached properties to release
+        if ( cursorDoneReading && !propertyCache.isEmpty() )
+        {
+            // pick the next property and remove it from the cache
+            Map.Entry<String, StorageProperty> entry = propertyCache.entrySet().iterator().next();
+            txStateValue = entry.getValue();
+            propertyCache.remove(entry.getKey());
+            hasNext = true;
+        }
         return hasNext;
     }
 
     private boolean allowed( int propertyKey )
     {
-        return read.ktx.securityContext().mode().allowsPropertyReads( propertyKey );
+        // first check user is allowed to see this property
+        boolean canRead = read.ktx.securityContext().mode().allowsPropertyReads( propertyKey );
+        if ( canRead )
+        {
+            String propertyKeyName = propertyKeyName();
+            if ( propertyKeyName.endsWith("$markup") )
+            {
+                String markupPropertyName = propertyKeyName;
+                StorageProperty markupProperty = property();
+                boolean accessible = read.ktx.securityContext().hasAccess(((TextValue) markupProperty.value()).stringValue());
+                propertyKeyName = propertyKeyName.substring(0, propertyKeyName.lastIndexOf('$') );
+                StorageProperty property = propertyCache.get(propertyKeyName);
+                if ( property == null )
+                {
+                    propertyCache.put(markupPropertyName, markupProperty);
+                    return accessible;
+                }
+                else
+                {
+                    if ( !accessible )
+                    {
+                        propertyCache.remove(propertyKeyName);
+                    }
+                    return accessible;
+                }
+            }
+            else
+            {
+                String markupPropertyName = propertyKeyName + "$markup";
+                StorageProperty markupProperty = propertyCache.get( markupPropertyName );
+                if ( markupProperty == null )
+                {
+                    propertyCache.put( propertyKeyName, property() );
+                }
+                else
+                {
+                    boolean accessible = read.ktx.securityContext().hasAccess( ((TextValue) markupProperty.value()).stringValue() );
+                    propertyCache.remove(markupPropertyName);
+                    return accessible;
+                }
+            }
+        }
+        return false;
+    }
+
+    private StorageProperty property()
+    {
+        if ( txStateValue == null )
+        {
+            txStateValue = new PropertyValue( propertyKey(), propertyValue() );
+        }
+        return txStateValue;
+    }
+
+    private String propertyKeyName()
+    {
+        try
+        {
+            return read.ktx.tokenRead().propertyKeyName(propertyKey());
+        }
+        catch ( PropertyKeyIdNotFoundKernelException e )
+        {
+            return null;
+        }
     }
 
     private boolean innerNext()
@@ -169,6 +286,10 @@ public class DefaultPropertyCursor extends PropertyRecord implements PropertyCur
                 txStateChangedProperties = null;
                 txStateValue = null;
             }
+        }
+        else
+        {
+            txStateValue = null;
         }
 
         while ( true )
@@ -241,6 +362,8 @@ public class DefaultPropertyCursor extends PropertyRecord implements PropertyCur
             txStateChangedProperties = null;
             txStateValue = null;
             read = null;
+            propertyCache.clear();
+            cursorDoneReading = false;
             clear();
 
             pool.accept( this );

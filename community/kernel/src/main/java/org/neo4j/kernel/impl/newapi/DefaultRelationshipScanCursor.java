@@ -21,9 +21,12 @@ package org.neo4j.kernel.impl.newapi;
 
 import java.util.Set;
 
+import org.neo4j.internal.kernel.api.PropertyCursor;
 import org.neo4j.internal.kernel.api.RelationshipScanCursor;
+import org.neo4j.internal.kernel.api.exceptions.PropertyKeyIdNotFoundKernelException;
 import org.neo4j.io.pagecache.PageCursor;
 import org.neo4j.kernel.api.txstate.TransactionState;
+import org.neo4j.values.storable.TextValue;
 
 import static java.util.Collections.emptySet;
 
@@ -78,6 +81,16 @@ class DefaultRelationshipScanCursor extends RelationshipCursor implements Relati
 
     @Override
     public boolean next()
+    {
+        boolean hasNext;
+        do
+        {
+            hasNext = innerNext();
+        } while ( hasNext && !allowed() );
+        return hasNext;
+    }
+
+    private boolean innerNext()
     {
         if ( next == NO_ID )
         {
