@@ -20,6 +20,7 @@
 package org.neo4j.cypher.internal.runtime.interpreted
 
 import java.time._
+import java._
 import java.time.temporal.TemporalAmount
 
 import org.neo4j.cypher.internal.util.v3_4.CypherTypeException
@@ -28,8 +29,8 @@ import org.neo4j.values.storable.{ArrayValue, _}
 import org.neo4j.values.virtual._
 import org.neo4j.values.{AnyValue, AnyValueWriter}
 
+import scala.collection._
 import scala.reflect.ClassTag
-
 object CastSupport {
 
   // TODO Switch to using ClassTag once we decide to depend on the reflection api
@@ -159,26 +160,44 @@ object CastSupport {
       transform(new ArrayConverterWriter(classOf[OffsetTime], a => Values.timeArray(a.asInstanceOf[Array[OffsetTime]]))))
     case _: LocalDateTimeValue => Converter(
       transform(new ArrayConverterWriter(classOf[LocalDateTime], a => Values.localDateTimeArray(a.asInstanceOf[Array[LocalDateTime]]))))
-    case _ => throw new CypherTypeException("Property values can only be of primitive types or arrays thereof")
+    case _: MapValue => Converter(
+      transform(new ArrayConverterWriter(classOf[util.Map[_,_]], a => Values.mapArray(a.asInstanceOf[Array[util.Map[_,_]]]))))
+    case _ => throw new CypherTypeException("Property values can only be of primitive types or arrays thereof ->"+x.getClass().toString())
   }
 
   private def transform(writer: ArrayConverterWriter)(value: ListValue): ArrayValue = {
     value.writeTo(writer)
+    println("transform "+value)
     writer.array
   }
 
   private class ArrayConverterWriter(typ: Class[_], transformer: (AnyRef) => ArrayValue)
     extends AnyValueWriter[RuntimeException] {
 
-    private var _array: AnyRef = null
+    private var _array: AnyRef = _
+    private var doingMap: Boolean = false
+    private var _map: util.HashMap[String, Any] = _
+    private var _key: String = _
     private var index = 0
 
-    private def fail() = throw new CypherTypeException(
-      "Property values can only be of primitive types or arrays thereof")
+    private def fail() = {
+      new NullPointerException().printStackTrace()
+      throw new CypherTypeException(
+      "Property values can only be of primitive types or arrays thereof (fail())")}
 
     private def write(value: Any) = {
-      java.lang.reflect.Array.set(_array, index, value)
-      index += 1
+      println(" write "+value)
+      if(!doingMap) {
+        java.lang.reflect.Array.set(_array, index, value)
+        index += 1
+      } else {
+          if(_key == null) {
+            _key = value.asInstanceOf[String]
+          } else {
+            _map.put(_key, value)
+            _key = null
+          }
+        }
     }
 
     def array: ArrayValue = {
@@ -196,13 +215,30 @@ object CastSupport {
     override def writeRelationship(relId: Long, startNodeId: Long, endNodeId: Long, `type`: TextValue,
                                    properties: MapValue): Unit = fail()
 
-    override def beginMap(size: Int): Unit = fail()
+    override def beginMap(size: Int): Unit = {
+      println(" beginMap "+this)
+      _map = new util.HashMap()
+      doingMap = true
+    }
 
-    override def endMap(): Unit = fail()
+    override def endMap(): Unit = {
+      println(" endMap "+_map.getClass().toString())
+      if(_array != null) {
+        java.lang.reflect.Array.set(_array, index, _map)
+        index += 1
+      }
+      doingMap = false
+    }
 
-    override def beginList(size: Int): Unit = _array = java.lang.reflect.Array.newInstance(typ, size)
+    override def beginList(size: Int): Unit = {
+      println("beginList typ:" + typ + " " + this)
+      _array = java.lang.reflect.Array.newInstance(typ, size)
+    }
 
-    override def endList(): Unit = {}
+    override def endList(): Unit = {
+      println("endList "+this)
+      new NullPointerException().printStackTrace();
+    }
 
     override def writePath(nodes: Array[NodeValue],
                            relationships: Array[RelationshipValue]): Unit = fail()

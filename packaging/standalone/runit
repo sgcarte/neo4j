@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+cd target
+tar -xvf neo4j-community-3.4.0-SNAPSHOT-unix.tar.gz
+cd neo4j-community-3.4.0-SNAPSHOT/bin
+./neo4j start
+tail -F ../logs/neo4j.log

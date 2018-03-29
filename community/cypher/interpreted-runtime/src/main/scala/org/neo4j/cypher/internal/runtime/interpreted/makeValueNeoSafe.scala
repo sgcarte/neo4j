@@ -31,7 +31,7 @@ object makeValueNeoSafe extends (AnyValue => Value) with ListSupport {
   def apply(a: AnyValue): Value = a match {
     case value: Value => value
     case IsList(l) => transformTraversableToArray(l)
-    case _ => throw new CypherTypeException("Property values can only be of primitive types or arrays thereof")
+    case _ => throw new CypherTypeException("Property values can only be of primitive types or arrays thereof ("+a.getClass.toString()+")")
   }
   /*
   This method finds the type that we can use for the primitive array that Neo4j wants

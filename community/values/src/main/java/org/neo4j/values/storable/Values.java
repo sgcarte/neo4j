@@ -31,9 +31,10 @@ import java.time.ZonedDateTime;
 import java.time.temporal.Temporal;
 import java.time.temporal.TemporalAmount;
 import java.time.temporal.TemporalUnit;
-import java.util.Arrays;
 import java.util.Comparator;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 import org.neo4j.graphdb.spatial.CRS;
@@ -469,6 +470,11 @@ public final class Values
     public static ArrayValue dateArray( LocalDate[] values )
     {
         return new DateArray( values );
+    }
+
+    public static ArrayValue mapArray( Map[] values )
+    {
+        return new MapArray( values );
     }
 
     public static ArrayValue durationArray( DurationValue[] values )

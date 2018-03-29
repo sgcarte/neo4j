@@ -34,11 +34,11 @@ import org.neo4j.values.storable.Values;
 
 import static org.neo4j.values.storable.Values.NO_VALUE;
 
-public final class MapValue extends VirtualValue
+public final class MapValue extends VirtualValue implements Comparable<MapValue>
 {
     private final Map<String,AnyValue> map;
 
-    MapValue( Map<String,AnyValue> map )
+    public MapValue( Map<String,AnyValue> map )
     {
         this.map = map;
     }
@@ -225,5 +225,12 @@ public final class MapValue extends VirtualValue
     public int size()
     {
         return map.size();
+    }
+
+    // TODO complete implementation
+    @Override
+    public int compareTo( MapValue o )
+    {
+        return 0;
     }
 }
